@@ -109,9 +109,18 @@ body.charts.live #layers { max-height: calc(100% - var(--tl-h) - var(--ch-h) - 1
 /* карточка судна */
 #card { position: fixed; left: 10px; bottom: calc(var(--tl-h) + 10px); width: 370px; max-height: calc(100% - var(--tl-h) - 80px); overflow: auto;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); z-index: 1000; backdrop-filter: blur(6px); }
-.card-h { padding: 9px 12px 6px; border-bottom: 1px solid var(--line); cursor: pointer; }
-#card.mini .row:nth-child(n+3) { display: none; }
-#card.mini .chips { display: none; }
+#card { transition: transform .2s ease; }
+#card.drag { transition: none; }
+.card-h { padding: 9px 12px 6px; border-bottom: 1px solid var(--line); cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+.grip { display: none; touch-action: none; cursor: grab; }
+.card-h .tg { float: right; color: var(--muted); font-weight: 400; }
+.card-h .tg::after { content: "▾"; }
+.card-h .sum { display: none; font-size: 14px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+/* свёрнутое окно: только время и главное — ветер и волна */
+#card.collapsed #cardBody, #card.collapsed .card-h .pos { display: none; }
+#card.collapsed .card-h .sum { display: block; }
+#card.collapsed .card-h { border-bottom: 0; padding-bottom: 9px; }
+#card.collapsed .card-h .tg::after { content: "▴"; }
 .card-h .t { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .card-h .pos { color: var(--text-2); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 #cardBody { padding: 4px 12px 10px; }
@@ -207,6 +216,10 @@ body.split #legend { right: calc(50% + 10px); }
   .lay-sep, .lay-h { display: none; }
   #panel { top: 6px; left: 6px; right: 6px; width: auto; max-height: calc(100% - var(--tl-h) - 12px); }
   #card { left: 6px; right: 6px; width: auto; bottom: calc(var(--tl-h) + 6px); max-height: 42%; }
+  /* «ручка» сверху окна — тянуть вниз, чтобы свернуть, вверх — развернуть */
+  .grip { display: block; height: 16px; position: relative; }
+  .grip::before { content: ""; position: absolute; left: 50%; top: 6px; width: 38px; height: 4px; margin-left: -19px; border-radius: 2px; background: var(--muted); }
+  #card .card-h { padding-top: 2px; }
   :root { --ch-h: 300px; }
   #charts { left: 6px; right: 6px; bottom: calc(var(--tl-h) + 6px); flex-direction: column; }
   body.charts #card { display: none; }

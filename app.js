@@ -383,7 +383,8 @@
     const v = st.voy;
     const togo = v.dist - p.gone;
     $('cardHead').innerHTML =
-      '<div class="t">' + WT.fmtTime(st.t) + ' UTC <span class="muted" style="font-weight:400;font-size:12px">· судовое ' + WT.fmtTime(st.t, st.tz) + '</span></div>' +
+      '<div class="t"><span class="tg"></span>' + WT.fmtTime(st.t) + ' UTC <span class="muted" style="font-weight:400;font-size:12px">· судовое ' + WT.fmtTime(st.t, st.tz) + '</span></div>' +
+      '<div class="sum">' + shortWx(s) + '</div>' +
       '<div class="pos">' + WT.fmtLat(p.lat) + ' ' + WT.fmtLon(p.lon) + ' · КК ' + WT.deg3(p.course) + ' · ' + f1(p.sog) + ' уз</div>' +
       '<div class="pos">пройдено ' + f0(p.gone) + "' · осталось " + f0(togo) + "' · ETA " + WT.fmtTime(v.eta) + ' UTC</div>';
     if (!s || (s.windSpd == null && s.hs == null)) { $('cardBody').innerHTML = '<div class="nodata">Нет прогноза на это время (дальше горизонта: ветер ~16 сут, волна ~10 сут).</div>'; return; }
@@ -746,8 +747,37 @@
   });
   let rz = null;
   window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (st.voy) setupTimeline(); if (!$('charts').hidden && st.sums.length) drawCharts(); }, 200); });
-  // на телефоне карточку можно свернуть до шапки и ветра — нажатием на шапку
-  $('cardHead').addEventListener('click', () => $('card').classList.toggle('mini'));
+  // карточку можно свернуть до строки «время · ветер · волна»: смахнуть вниз (или нажать на шапку), развернуть — вверх или нажатием
+  const setCardMini = (on) => { $('card').classList.toggle('collapsed', on); LS.set('cardMini', on); };
+  setCardMini(LS.get('cardMini', false));
+  let cardDrag = null;
+  for (const el of [$('cardGrip'), $('cardHead')]) {
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      cardDrag = { y: e.clientY, dy: 0 };
+      $('card').classList.add('drag');
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!cardDrag) return;
+      cardDrag.dy = e.clientY - cardDrag.y;
+      const mini = $('card').classList.contains('collapsed');
+      const d = mini ? Math.min(0, cardDrag.dy) / 3 : Math.max(0, cardDrag.dy); // окно идёт за пальцем
+      $('card').style.transform = d ? 'translateY(' + d + 'px)' : '';
+    });
+    const end = (e) => {
+      if (!cardDrag) return;
+      const dy = cardDrag.dy, mini = $('card').classList.contains('collapsed');
+      cardDrag = null;
+      $('card').classList.remove('drag'); $('card').style.transform = '';
+      if (e.type === 'pointercancel') return;
+      if (Math.abs(dy) < 8) setCardMini(!mini); // нажатие
+      else if (dy > 40) setCardMini(true);
+      else if (dy < -30) setCardMini(false);
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
 
   // ======================= ТАБЛИЦА =======================
   function tableRows() {
