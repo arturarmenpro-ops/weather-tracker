@@ -1,9 +1,7 @@
 {
  "updated": "2026-10-18T20:49:51Z",
- "source": "фото ECDIS от капитана",
  "route": {
   "name": "VOY19 Port Louis → Santos (WP22–29)",
-  "vessel": "",
   "wps": [
    {
     "name": "ENTERING SISTRAM",

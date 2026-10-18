@@ -101,14 +101,15 @@
   }
 
   function useVoyage(v) {
+    const num = (x) => (Number.isFinite(+x) && +x > 0 ? +x : null); // из рейса берём только числа
     if (!v || !v.route || !v.route.wps || v.route.wps.length < 2) return toast('В рейсе из Telegram нет маршрута', true);
     const route = {
       format: 'Telegram', file: '__voyage__', name: v.route.name || 'Рейс', vessel: v.route.vessel || v.vessel || '',
-      wps: v.route.wps.map((w, i) => ({ name: w.name || 'WP' + (i + 1), lat: +w.lat, lon: +w.lon, geom: w.geom === 'GC' ? 'GC' : 'RL', speed: w.speed || null })),
+      wps: v.route.wps.map((w, i) => ({ name: w.name || 'WP' + (i + 1), lat: +w.lat, lon: +w.lon, geom: w.geom === 'GC' ? 'GC' : 'RL', speed: num(w.speed) })),
       updated: v.updated || '', source: v.source || '', note: v.note || '',
     };
     useRoute('__voyage__', null, route, {
-      updated: v.updated || '', dep: Date.parse(v.dep), speed: v.speed, startIdx: v.startIdx || 0, speeds: v.speeds || {},
+      updated: v.updated || '', dep: Date.parse(v.dep), speed: num(v.speed), startIdx: Math.max(0, parseInt(v.startIdx, 10) || 0), speeds: Object.fromEntries(Object.entries(v.speeds || {}).filter(([, x]) => num(x)).map(([k, x]) => [k, num(x)])),
       pos: v.pos || '', lim: v.limits, tz: v.tz,
     });
   }
@@ -152,7 +153,7 @@
     $('wpCount').textContent = '(' + r.wps.length + ')';
     $('wpTable').querySelector('tbody').innerHTML = r.wps.map((w, i) => {
       const leg = i === 0 ? '' : (w.geom === 'GC' ? 'GC ' : 'RL ') + WT.deg3((w.geom === 'GC' ? WT.great(r.wps[i - 1], w) : WT.rhumb(r.wps[i - 1], w)).course) + ' ' + Math.round((w.geom === 'GC' ? WT.great(r.wps[i - 1], w) : WT.rhumb(r.wps[i - 1], w)).dist) + "'";
-      const sp = i === 0 ? '' : '<input type="number" step="0.5" min="1" max="40" data-i="' + i + '" value="' + (st.speeds[i] || w.speed || '') + '" placeholder="' + esc($('speed').value) + '">';
+      const sp = i === 0 ? '' : '<input type="number" step="0.5" min="1" max="40" data-i="' + i + '" value="' + esc(st.speeds[i] || w.speed || '') + '" placeholder="' + esc($('speed').value) + '">';
       return '<tr class="' + (i < start ? 'before' : '') + '"><td>' + (i + 1) + '</td><td class="nm" title="' + esc(w.name) + '">' + esc(w.name) + '</td><td>' + WT.fmtLat(w.lat) + '</td><td>' + WT.fmtLon(w.lon) + '</td><td>' + leg + '</td><td>' + sp + '</td></tr>';
     }).join('');
   }
