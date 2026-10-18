@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Weather Tracker</title>
+<link rel="icon" href="data:,">
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.css">
+<link rel="stylesheet" href="style.css?v=20261018224951">
+</head>
+<body>
+<div id="stage">
+  <div id="map"></div>
+  <div id="windyPane" hidden>
+    <div class="wp-head">
+      <b>Windy</b> <span id="windyInfo" class="muted"></span>
+      <span class="sp"></span>
+      <button id="windySync" class="btn sm" title="Поставить Windy в точку и время судна">↻ по судну</button>
+      <a id="windyOpen" class="btn sm" target="_blank" rel="noopener">открыть windy.com ↗</a>
+      <button id="windyClose" class="btn sm" title="Закрыть">✕</button>
+    </div>
+    <iframe id="windyFrame" title="Windy" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+  </div>
+</div>
+
+<!-- верхняя панель -->
+<div id="topbar">
+  <div class="brand"><span class="logo">◈</span> Weather Tracker</div>
+  <button id="btnPanel" class="btn">☰ Маршрут</button>
+  <button id="btnTable" class="btn" disabled>Таблица</button>
+  <button id="btnCharts" class="btn" disabled>Графики</button>
+  <button id="btnWindy" class="btn">Сравнить с Windy</button>
+</div>
+
+<!-- панель маршрута -->
+<aside id="panel">
+  <div class="p-head"><b>Маршрут и рейс</b><button id="panelClose" class="btn sm">✕</button></div>
+  <div class="p-body">
+    <label class="f local-only">Маршрут
+      <select id="routeSel"><option value="">— выбрать —</option></select>
+    </label>
+    <div class="drop local-only" id="drop">
+      <input type="file" id="fileIn" accept=".rtz,.xml,.gpx,.txt,.csv,.rte,.route,text/plain,application/xml">
+      <span>Открыть файл <b>RTZ</b> (ECDIS Furuno, JRC…), GPX или текст с координатами — или перетащите сюда</span>
+    </div>
+    <div id="routeInfo" class="muted small"></div>
+
+    <label class="f">Позиция судна, если уже в пути <span class="muted">(необязательно)</span>
+      <input type="text" id="pos" placeholder="напр. 45 30.5 N 010 15.2 W" autocomplete="off" spellcheck="false"></label>
+    <div class="grid2">
+      <label class="f"><span id="depLbl">Отход, UTC</span><input type="datetime-local" id="dep"></label>
+      <label class="f">От точки<select id="startWp"></select></label>
+      <label class="f">Скорость, уз<input type="number" id="speed" min="1" max="40" step="0.5"></label>
+      <label class="f">Шаг расчёта<select id="step">
+        <option value="1">1 час</option><option value="2">2 часа</option><option value="3">3 часа</option><option value="6">6 часов</option>
+      </select></label>
+      <label class="f">Судовое время, UTC±<input type="number" id="tz" min="-12" max="14" step="0.5"></label>
+      <span></span>
+      <label class="f">Предел ветра, Бф<input type="number" id="limBf" min="3" max="12" step="1"></label>
+      <label class="f">Предел волны, м<input type="number" id="limHs" min="0.5" max="15" step="0.5"></label>
+    </div>
+    <button id="build" class="btn primary wide" disabled>Построить погоду по маршруту</button>
+    <button id="publish" class="btn wide local-only" title="Записать этот рейс в voyage.json — его покажет страница по ссылке">Сохранить рейс для ссылки капитану</button>
+
+    <details id="wpBox">
+      <summary>Точки маршрута <span id="wpCount" class="muted"></span></summary>
+      <div class="muted small">Скорость в строке — для участка, который ведёт к этой точке. Пусто — общая скорость.</div>
+      <table id="wpTable"><thead><tr><th>#</th><th>Точка</th><th>Широта</th><th>Долгота</th><th>Участок</th><th>Уз</th></tr></thead><tbody></tbody></table>
+    </details>
+
+    <details>
+      <summary>Откуда погода</summary>
+      <div class="small">
+        <p><b>Ветер и давление:</b> ECMWF (Европа), GFS (NOAA, США), ICON (DWD, Германия) — те же модели, что у Windy.</p>
+        <p><b>Волна и зыбь:</b> ECMWF WAM, NOAA WaveWatch III, DWD GWAM, Météo-France MFWAM.</p>
+        <p><b>Течения:</b> Copernicus Marine / Mercator — тот же источник, что у Windy.</p>
+        <p>Данные собирает бесплатный сервис Open-Meteo. На карте и в карточке — среднее (медиана) по моделям и разброс; значок показывает, согласны ли модели.</p>
+        <p class="muted">Прогноз — подсказка для планирования, не замена NAVTEX, официальных прогнозов ГМССБ и решения капитана.</p>
+      </div>
+    </details>
+  </div>
+</aside>
+
+<!-- слои карты (как у Windy) -->
+<div id="layers">
+  <div class="lay-h">Прогноз</div>
+  <button data-layer="wind" class="lay">Ветер</button>
+  <button data-layer="gust" class="lay">Порывы</button>
+  <button data-layer="rain" class="lay">Осадки</button>
+  <button data-layer="clouds" class="lay">Облачность</button>
+  <button data-layer="pressure" class="lay">Давление</button>
+  <button data-layer="vis" class="lay">Видимость</button>
+  <div class="lay-h">Море</div>
+  <button data-layer="waves" class="lay">Волны</button>
+  <button data-layer="swell" class="lay">Зыбь</button>
+  <button data-layer="windwave" class="lay">Ветр. волна</button>
+  <button data-layer="currents" class="lay">Течения</button>
+  <div class="lay-h">Сейчас</div>
+  <button data-layer="radar" class="lay">Радар</button>
+  <button data-layer="satellite" class="lay">Спутник</button>
+  <div class="lay-sep"></div>
+  <label class="lay-opt">Модель ветра
+    <select id="mapModel"></select>
+  </label>
+  <label class="lay-chk"><input type="checkbox" id="chkParticles"> Частицы</label>
+  <label class="lay-chk"><input type="checkbox" id="chkIsobars"> Изобары</label>
+  <label class="lay-chk"><input type="checkbox" id="chkSeamarks"> Знаки OpenSeaMap</label>
+</div>
+
+<!-- карточка судна -->
+<section id="card" hidden>
+  <div class="card-h" id="cardHead"></div>
+  <div id="cardBody"></div>
+</section>
+
+<!-- графики -->
+<section id="charts" hidden>
+  <div class="chart" id="chWind"></div>
+  <div class="chart" id="chWave"></div>
+</section>
+
+<!-- шкала цвета -->
+<div id="legend"></div>
+
+<!-- лента времени -->
+<footer id="timeline">
+  <button id="play" class="btn round" disabled title="Пуск / пауза">▶</button>
+  <div id="tLabel" class="tlabel"><b>—</b><span class="muted">загрузите маршрут</span></div>
+  <div class="track">
+    <input type="range" id="slider" min="0" max="1" step="1" value="0" disabled>
+    <div id="ticks"></div>
+  </div>
+  <select id="rate" title="Скорость анимации">
+    <option value="1">1 ч/с</option><option value="3">3 ч/с</option><option value="6">6 ч/с</option><option value="12">12 ч/с</option>
+  </select>
+</footer>
+
+<div id="toast" hidden></div>
+
+<!-- таблица -->
+<div id="modal" hidden>
+  <div class="m-box">
+    <div class="m-head"><b>Погода по маршруту</b><span class="sp"></span>
+      <button id="csv" class="btn sm">Скачать CSV</button><button id="modalClose" class="btn sm">✕</button></div>
+    <div class="m-body"><table id="bigTable"></table></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.js"></script>
+<script src="scales.js?v=20261018224951"></script>
+<script src="route.js?v=20261018224951"></script>
+<script src="weather.js?v=20261018224951"></script>
+<script src="contour.js?v=20261018224951"></script>
+<script src="live.js?v=20261018224951"></script>
+<script src="app.js?v=20261018224951"></script>
+</body>
+</html>
