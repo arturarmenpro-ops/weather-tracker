@@ -28,7 +28,8 @@
     if (name !== 'route') map.getPane(name).style.pointerEvents = 'none';
   }
   const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
-  L.tileLayer(ESRI + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, attribution: 'Карта © Esri, © OpenStreetMap · <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a> (CC BY 4.0: ECMWF, NOAA, DWD, Météo-France, Copernicus)' }).addTo(map);
+  let mapBad = 0;
+  L.tileLayer(ESRI + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, attribution: 'Карта © Esri, © OpenStreetMap · <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a> (CC BY 4.0: ECMWF, NOAA, DWD, Météo-France, Copernicus)' }).on('tileerror', () => { if (++mapBad > 8) WT.src('map', 'down', { note: 'подложка не грузится, погода и маршрут видны' }); }).on('tileload', () => { if (mapBad) { mapBad = 0; WT.src('map', 'ok'); } }).addTo(map);
   L.tileLayer(ESRI + 'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, pane: 'labels' }).addTo(map);
   const seamarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom: 18, pane: 'seamarks', attribution: '© OpenSeaMap' });
   const planLayer = L.layerGroup().addTo(map), segLayer = L.layerGroup().addTo(map);
@@ -45,19 +46,18 @@
     if (msg && ms !== 0) toastTimer = setTimeout(() => (t.hidden = true), ms || (isErr ? 9000 : 3500));
   }
 
-  // подсказка внизу карты: что не получилось и что делать — висит, пока не закроют или не загрузится
-  function notice(html) { $('notice').hidden = !html; $('noticeText').innerHTML = html || ''; }
-  $('noticeClose').addEventListener('click', () => notice(''));
-  function wxFailNotice(what, e) {
-    let h = '<p><b>' + what + '</b> ' + esc(e.message) + '</p>';
-    if (/лимит/i.test(e.message)) {
-      const m = Math.max(1, Math.round((Math.ceil(Date.now() / 864e5) * 864e5 - Date.now()) / 60e3));
-      h += '<p>Бесплатный сервис погоды даёт ограниченное число запросов в сутки на один интернет-адрес. Лимит сбросится через ' +
-        (m >= 60 ? Math.floor(m / 60) + ' ч ' : '') + (m % 60) + ' мин (в 00:00 UTC) — тогда обновите страницу.</p>';
-    } else h += '<p>Проверьте интернет и обновите страницу.</p>';
-    h += '<p class="muted">Маршрут на карте показан. Окно погоды (с ручкой, которая сворачивает его вниз), раскраска маршрута, таблица и графики появятся, когда прогноз загрузится.</p>';
+  // пояснение в окне «Источники погоды» (значок ⚠ вверху): что не получилось и что делать — пока не загрузится
+  const notice = (html) => WT.statusMsg(html);
+  const fails = {}; // что сейчас не загрузилось: route / grid
+  function wxFailNotice(what, e, part) {
+    fails[part] = what;
+    let h = '<p><b>' + [fails.route, fails.grid].filter(Boolean).join(' ') + '</b></p>';
+    h += /лимит/i.test(e.message)
+      ? '<p>У бесплатного сервиса погоды лимит запросов на один интернет-адрес (на судне через Starlink — общий для всех устройств), а резерв сейчас тоже не ответил. Когда лимит снимется, страница сама загрузит прогноз — обновлять не нужно.</p>'
+      : '<p>Похоже, нет интернета или серверы погоды не отвечают. Страница сама повторит через несколько минут.</p>';
     notice(h);
   }
+  function wxOk(part) { delete fails[part]; if (!fails.route && !fails.grid) notice(''); }
 
   // ======================= МАРШРУТЫ =======================
   async function loadRouteList() {
@@ -156,9 +156,9 @@
     sw.innerHTML = route.wps.slice(0, -1).map((w, i) => '<option value="' + i + '">' + (i + 1) + '. ' + esc(w.name) + '</option>').join('');
     sw.value = Math.min(saved.startIdx || 0, route.wps.length - 2);
     const tot = route.wps.slice(1).reduce((s, w, i) => s + (w.geom === 'GC' ? WT.great(route.wps[i], w) : WT.rhumb(route.wps[i], w)).dist, 0);
-    $('routeInfo').innerHTML = '<b>' + esc(route.name) + '</b> · ' + route.format + ' · ' + route.wps.length + ' точек · ' + Math.round(tot) + ' миль' + (route.vessel ? ' · ' + esc(route.vessel) : '') + (route.etd ? ' · ETD из файла' : '') +
-      (route.updated ? '<br>Получен ' + WT.fmtTime(Date.parse(route.updated)) + ' UTC' + (route.source ? ' · ' + esc(route.source) : '') : '') +
-      (route.note ? '<br>' + esc(route.note) : '');
+    $('routeInfo').innerHTML = '<b class="notr">' + esc(route.name) + '</b> · ' + route.format + ' · ' + route.wps.length + ' точек · ' + Math.round(tot) + ' миль' + (route.vessel ? ' · ' + esc(route.vessel) : '') + (route.etd ? ' · ETD из файла' : '') +
+      (route.updated && !isNaN(Date.parse(String(route.updated).split('#')[0])) ? '<br>Получен ' + WT.fmtTime(Date.parse(String(route.updated).split('#')[0])) + ' UTC' + (route.source ? ' · <span class="notr">' + esc(route.source) + '</span>' : '') : '') +
+      (route.note ? '<br><span class="notr">' + esc(route.note) + '</span>' : '');
     renderWpTable();
     drawPlan();
     map.fitBounds(L.latLngBounds(WT.unwrap(route.wps)).pad(0.15), { paddingTopLeft: [window.innerWidth > 760 ? 370 : 0, 40], paddingBottomRight: [window.innerWidth > 760 ? 170 : 0, 40] });
@@ -177,7 +177,7 @@
   }
 
   function saveRouteSettings() {
-    if (!st.route) return;
+    if (!st.route || String(st.route.updated || '').includes('#')) return; // основным выбран вариант — исходный рейс не трогаем
     LS.set('r.' + st.route.file, { dep: Date.parse($('dep').value + 'Z'), speed: +$('speed').value, startIdx: +$('startWp').value, speeds: st.speeds, pos: $('pos').value.trim(), updated: st.route.updated || undefined, lim: st.lim, tz: st.tz });
   }
 
@@ -213,15 +213,15 @@
   // поля меняют часто — считаем заново через 0.7 с после последней правки, а не на каждое нажатие
   let buildTimer = null;
   const buildSoon = () => { clearTimeout(buildTimer); buildTimer = setTimeout(() => { if (st.route) build(); }, 700); };
-  async function build() {
+  async function build(opts) {
     if (!st.route) return;
-    const id = ++buildId;
+    const id = ++buildId, keepT = opts && opts.keepT ? st.t : null;
     stop();
     const dep = Date.parse($('dep').value + 'Z');
     if (isNaN(dep)) return toast('Укажите время отхода', true);
     st.speed = +$('speed').value || 12; LS.set('speed', st.speed);
     st.stepH = +$('step').value; LS.set('stepH', st.stepH);
-    st.lim = { bf: +$('limBf').value || 7, hs: +$('limHs').value || 4 }; LS.set('lim', st.lim);
+    st.lim = { bf: Math.min(12, Math.max(1, Math.round(+$('limBf').value || 7))), hs: +$('limHs').value || 4 }; LS.set('lim', st.lim);
     // позиция судна (если уже в пути): рейс считается от неё к следующей точке
     let startPos = null;
     const posTxt = $('pos').value.trim();
@@ -243,19 +243,20 @@
     setupTimeline();
     st.t = Math.min(Math.max(Date.now(), st.voy.dep), st.voy.eta);
     if (Date.now() < st.voy.dep || Date.now() > st.voy.eta) st.t = st.voy.dep;
+    if (keepT != null && keepT >= st.voy.dep && keepT <= st.voy.eta) st.t = keepT; // повтор сам — время на ленте не сбиваем
     clearWeather();
     placeShip();
     $('build').disabled = true;
     st.builtPos = posTxt;
     const alive = () => id === buildId;
-    notice('');
     try {
       toast('Загружаю прогноз по маршруту…', false, 0);
       WT.staleAge = 0;
-      const wx = await WT.fetchRouteWeather(st.samples, { status: (m) => alive() && toast(m, false, 0), alive });
+      const wx = await WT.fetchRouteWeatherAny(st.samples, { status: (m) => alive() && toast(m, false, 0), alive });
       if (!alive()) return;
+      wxOk('route');
       st.sums = wx.map((w) => WT.summarize(w));
-      st.wx = wx;
+      st.wx = wx; st.stale = WT.staleAge > 0;
       st.sev = st.sums.map((s) => WT.severity(s, st.lim));
       drawSegments();
       $('btnTable').disabled = false; $('btnCharts').disabled = false;
@@ -263,13 +264,17 @@
       drawCharts();
       setTime(st.t);
       const noData = st.sums.filter((s) => s.windSpd == null).length;
-      if (WT.staleAge) toast('Нет связи с Open-Meteo: показан сохранённый прогноз ' + Math.round(WT.staleAge / 3600 * 10) / 10 + ' ч назад', true, 12000);
+      if (wx.backup) toast('Основной прогноз недоступен — показан резерв: ECMWF (MET Norway), GFS и волна NOAA. Подробно — значок ⚠ вверху', true, 9000);
+      else if (WT.staleAge) toast('Основной прогноз сейчас недоступен — показан сохранённый ' + Math.round(WT.staleAge / 3600 * 10) / 10 + ' ч назад', true, 12000);
       else toast(noData ? 'Готово. Нет прогноза для ' + noData + ' из ' + st.sums.length + ' точек (дальше горизонта прогноза).' : 'Погода по маршруту готова', false, noData ? 7000 : 2500);
+      await loadGrid(id);
+      // варианты маршрута — после карты (карта не ждёт их), последовательно, чтобы беречь лимит Open-Meteo
       if ((st.variantsData || []).length) {
         try {
-          await WT.buildVariants(st.variantsData, { dep: st.voy.dep, speed: st.speed, stepH: st.stepH, lim: st.lim },
+          await WT.buildVariants(st.variantsData, { dep: st.voy.dep, speed: st.speed, stepH: st.stepH, lim: st.lim, startPos: st.voy.startPos },
             { status: (m) => alive() && toast(m, false, 0), alive });
           if (!alive()) return;
+          WT.resevVariants(st.lim);
           WT.drawVariants(map, planRef());
           $('btnCompare').hidden = false;
           setTime(st.t);
@@ -279,36 +284,50 @@
           toast('Варианты маршрута не загрузились: ' + e.message, true);
         }
       }
-      await loadGrid(id);
     } catch (e) {
       if (WT.isCancelled(e) || !alive()) return;
       toast('');
-      wxFailNotice('Погода по маршруту не загрузилась.', e);
+      wxFailNotice('Прогноз по маршруту пока не загрузился (маршрут на карте показан).', e, 'route');
       setTime(st.t); // время и судно на ленте — и без прогноза
     } finally {
       if (id === buildId) $('build').disabled = false;
     }
   }
 
+  // сменили язык — перерисовать то, что собирается из шкал (баллы, «в скулу», дни недели)
+  WT.onLang = () => {
+    renderLegend();
+    if (st.voy) { setupTimeline(); setTime(st.t); drawCharts(); }
+  };
+
+  // основной прогноз снова доступен (лимит снялся / появилась связь) — пересчитать самим, без «обновите страницу»
+  WT.onRetry = async () => {
+    if (!st.route || !(await WT.probeForecast())) return; // не вышло — окно источников само назначит следующий повтор
+    if (st.wx && !st.wx.backup && !st.stale && !(st.grid && st.grid.backup) && !fails.route && !fails.grid) return; // всё и так полное и свежее
+    toast('Основной прогноз снова работает — загружаю полный…', false, 0);
+    build({ keepT: true });
+  };
+
   let gridSeq = 0;
   async function loadGrid(id) {
     const lats = st.samples.map((s) => s.lat), lons = st.sampleLon.slice();
-    for (const v of WT.variantsList()) for (const s of v.samples) { lats.push(s.lat); lons.push(near(s.lon, planRef())); }
+    for (const v of st.variantsData || []) for (const [la, lo] of WT.routeLine(v.route, 0)) { lats.push(la); lons.push(near(lo, planRef())); }
     const g = WT.gridFor({ s: Math.min(...lats), n: Math.max(...lats), w: Math.min(...lons), e: Math.max(...lons) });
     const gid = ++gridSeq, model = st.mapModel; // при быстрой смене модели побеждает последний запрос
     const alive = () => id === buildId && gid === gridSeq;
     try {
-      const G = await WT.fetchGrid(g, st.voy.dep, st.voy.eta, model, { status: (m) => alive() && toast(m, false, 0), alive });
+      const G = await WT.fetchGridAny(g, st.voy.dep, st.voy.eta, model, { status: (m) => alive() && toast(m, false, 0), alive });
       if (!alive()) return;
+      wxOk('grid');
       st.grid = G;
       lastOv = ''; lastVel = '';
       renderMapWx(true);
       ensureLayerData(st.layer);
-      toast('Карта погоды готова (сетка ' + G.step + '°)', false, 2000);
+      toast(G.backup ? 'Карта погоды из резерва NOAA (GFS, WaveWatch III), сетка ' + G.step + '°' : 'Карта погоды готова (сетка ' + G.step + '°)', false, G.backup ? 4000 : 2000);
     } catch (e) {
       if (WT.isCancelled(e) || !alive()) return;
       toast('');
-      wxFailNotice('Цветная карта погоды не загрузилась.', e);
+      wxFailNotice('Цветной карты погоды пока нет.', e, 'grid');
     }
   }
 
@@ -411,14 +430,14 @@
       const bf = WT.beaufort(s.windSpd);
       h += '<div class="row"><div class="k">Ветер<span class="agree ' + s.windAgree + '">' + AGREE[s.windAgree] + '</span></div>' +
         '<div class="v">' + arrowTo(s.windDir + 180) + ' ' + WT.compass(s.windDir) + ' ' + WT.deg3(s.windDir) + ' · ' + f0(s.windSpd) + ' уз · ' + bf.n + ' Бф</div>' +
-        '<div class="s">' + bf.name + ' · разброс ' + f0(s.windMin) + '–' + f0(s.windMax) + ' уз · порывы ' + f0(s.gust) + ' уз · ' + WT.relFrom(s.windDir, p.course) + '</div>' +
+        '<div class="s">' + bf.name + ' · разброс ' + f0(s.windMin) + '–' + f0(s.windMax) + ' уз' + (s.gust != null ? ' · порывы ' + f0(s.gust) + ' уз' : '') + ' · ' + WT.relFrom(s.windDir, p.course) + '</div>' +
         chips(WT.WIND_MODELS, s.models.wind, (x) => f0(x) + ' уз') + '</div>';
     }
     if (s.hs != null) {
       const d = WT.douglasSea(s.hs);
       h += '<div class="row"><div class="k">Волна (общая)<span class="agree ' + s.waveAgree + '">' + AGREE[s.waveAgree] + '</span></div>' +
         '<div class="v">' + arrowTo(s.waveDir + 180) + ' ' + f1(s.hs) + ' м · Дуглас ' + d.n + '</div>' +
-        '<div class="s">' + d.name + ' (' + d.en + ') · из ' + WT.compass(s.waveDir) + ' · период ' + f1(s.tp) + ' с · ' + WT.relFrom(s.waveDir, p.course) + '</div>' +
+        '<div class="s">' + d.name + (WT.lang === 'en' ? '' : ' (' + d.en + ')') + ' · из ' + WT.compass(s.waveDir) + ' · период ' + f1(s.tp) + ' с · ' + WT.relFrom(s.waveDir, p.course) + '</div>' +
         chips(WT.WAVE_MODELS, s.models.wave, (x) => f1(x) + ' м') + '</div>';
     }
     if (s.wwH != null) {
@@ -437,6 +456,7 @@
     }
     if (s.pres != null) h += '<div class="row"><div class="k">Давление</div><div class="v">' + f0(s.pres) + ' гПа</div></div>';
     h += WT.variantsCardHtml(st.t);
+    if (st.wx && st.wx.backup) h += '<div class="bk-note">Резервный прогноз: ECMWF (MET Norway), GFS и волна WaveWatch III (NOAA). Течений нет. Полный прогноз загрузится сам, когда основной источник снова заработает.</div>';
     $('cardBody').innerHTML = h;
   }
   function chips(models, vals, fmt) {
@@ -586,7 +606,8 @@
     const marks = L0.scale === 'wind' ? [0, 17, 34, 64] : L0.scale === 'waves' ? [0, 2.5, 6, 14] : L0.scale === 'rain' ? [0.1, 8, 30] : L0.scale === 'vis' ? [0, 10, 40] : [stops[0][0], stops[Math.floor(stops.length / 2)][0], max];
     const gm = st.grid ? st.grid.windModel : st.mapModel, gname = (WT.WIND_MODELS.find((m) => m.id === gm) || {}).name;
     const FC_LAYERS = ['wind', 'gust', 'rain', 'clouds', 'pressure'];
-    const src = st.layer === 'vis' ? (st.grid && st.grid.visSource) || gname : FC_LAYERS.includes(st.layer) ? gname : '';
+    const bk = st.grid && st.grid.backup ? ' (резерв NOAA)' : '';
+    const src = st.layer === 'vis' ? (st.grid && st.grid.visSource) || gname : FC_LAYERS.includes(st.layer) ? gname + bk : st.grid && st.grid.backup && st.layer !== 'currents' ? 'WaveWatch III (резерв NOAA)' : '';
     $('legend').innerHTML = '<div>' + L0.title + (src ? ' · ' + src : '') + '</div>' +
       '<div class="bar" style="background:linear-gradient(90deg,' + grad + ')"></div>' +
       '<div class="lbl abs">' + marks.map((v) => at(v, v)).join('') + '</div>' +
@@ -684,8 +705,9 @@
   function drawCharts() {
     if ($('charts').hidden || !st.sums.length) return;
     const S = st.samples, wx = st.wx;
-    const windSeries = WT.WIND_MODELS.map((m) => ({ ...m, pts: S.map((s, i) => [s.t, wx[i].wind[m.id] ? wx[i].wind[m.id].spd : null]) }));
-    const waveSeries = WT.WAVE_MODELS.map((m) => ({ ...m, pts: S.map((s, i) => [s.t, wx[i].wave[m.id] ? wx[i].wave[m.id].hs : null]) }));
+    const has = (x) => x.pts.some((p) => p[1] != null); // резервные модели — только когда они в деле
+    const windSeries = WT.WIND_MODELS.map((m) => ({ ...m, pts: S.map((s, i) => [s.t, wx[i].wind[m.id] ? wx[i].wind[m.id].spd : null]) })).filter(has);
+    const waveSeries = WT.WAVE_MODELS.map((m) => ({ ...m, pts: S.map((s, i) => [s.t, wx[i].wave[m.id] ? wx[i].wave[m.id].hs : null]) })).filter(has);
     const maxW = Math.max(15, ...windSeries.flatMap((s) => s.pts.map((p) => p[1] || 0)));
     const maxH = Math.max(1.5, ...waveSeries.flatMap((s) => s.pts.map((p) => p[1] || 0)));
     const yW = Math.max(BFceil(maxW * 1.1), WT.bfEdge(st.lim.bf) + 3);
@@ -829,7 +851,7 @@
   $('csv').addEventListener('click', () => {
     const q = (c) => '"' + String(c).replace(/"/g, '""') + '"';
     const dc = (c) => (/^-?\d+(\.\d+)?(–-?\d+(\.\d+)?)?$/.test(String(c)) ? String(c).replace(/\./g, ',') : c); // числа: 2,5 вместо 2.5
-    const csv = '\uFEFF' + [HEAD.map(q).join(';')].concat(tableRows().map((r) => r.cells.map((c) => q(dc(c))).join(';'))).join('\r\n');
+    const csv = '\uFEFF' + [HEAD.map((h) => q(WT.tr(h))).join(';')].concat(tableRows().map((r) => r.cells.map((c) => q(dc(WT.tr(String(c))))).join(';'))).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     a.download = 'weather_' + (st.route ? st.route.name.replace(/[^\w\-]+/g, '_') : 'route') + '.csv';
@@ -848,7 +870,7 @@
     b.hidden = false;
     // только последнее изменение — вся история не нужна (просил Артур)
     $('verPop').innerHTML = '<h4>Weather Tracker v' + esc(v.version) + '</h4>' +
-      '<div class="it">' + esc(when(v.date)) + '<div>' + esc(v.what || '') + '</div><div class="who">внёс: ' + esc(v.by || '—') + '</div></div>';
+      '<div class="it">' + esc(when(v.date)) + '<div class="notr">' + esc(v.what || '') + '</div><div class="who">внёс: ' + esc(v.by || '—') + '</div></div>';
     b.addEventListener('click', (e) => { e.stopPropagation(); $('verPop').hidden = !$('verPop').hidden; });
     document.addEventListener('click', (e) => { if (!$('verPop').contains(e.target)) $('verPop').hidden = true; });
   })();
@@ -867,9 +889,9 @@
     const iso = (ms) => new Date(ms).toISOString().slice(0, 16) + 'Z';
     const oldMain = { id: 'A', name: 'Был основным: ' + st.route.name, route: { name: st.route.name, wps: st.route.wps },
       dep: iso(st.voy.dep), speed: st.speed, speeds: st.speeds, startIdx: +$('startWp').value || 0, pos: $('pos').value.trim() };
-    const others = list.filter((x, i) => i !== k);
+    const others = list.filter((x, i) => i !== chosen.rawIdx);
     const v2 = Object.assign({}, raw, {
-      updated: (raw.updated || '') + '#' + chosen.id, note: 'Основным выбран «' + chosen.name + '» на этом экране.',
+      updated: (raw.updated || '') + '#' + chosen.id, note: 'Основным выбран «' + chosen.name + '» на этом экране.', limits: st.lim, tz: st.tz,
       route: { name: chosen.name, wps: chosen.route.wps }, dep: iso(chosen.voy.dep), speed: chosen.speed || st.speed,
       speeds: chosen.speeds, startIdx: chosen.startIdx, pos: chosen.pos, variants: [oldMain].concat(others),
     });
@@ -928,6 +950,7 @@
       dep: new Date(st.voy.dep).toISOString().slice(0, 16) + 'Z', startIdx: +$('startWp').value || 0, speed: st.speed, speeds: st.speeds,
       pos: $('pos').value.trim(), limits: st.lim, tz: st.tz, note: st.route.note || '',
     };
+    if (st.route.file === '__voyage__' && st.voyageRaw && Array.isArray(st.voyageRaw.variants)) v.variants = st.voyageRaw.variants; // варианты не теряем
     try {
       const r = await fetch('/api/voyage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v, null, 1) });
       if (!r.ok) throw new Error((await r.json()).error || r.status);
@@ -939,7 +962,7 @@
   for (const id of ['dep', 'speed', 'step']) $(id).addEventListener('change', buildSoon);
   // пределы судна меняют только раскраску — прогноз заново не грузим
   for (const id of ['limBf', 'limHs']) $(id).addEventListener('change', () => {
-    st.lim = { bf: +$('limBf').value || 7, hs: +$('limHs').value || 4 }; LS.set('lim', st.lim);
+    st.lim = { bf: Math.min(12, Math.max(1, Math.round(+$('limBf').value || 7))), hs: +$('limHs').value || 4 }; LS.set('lim', st.lim);
     saveRouteSettings();
     if (!st.sums.length) return;
     st.sev = st.sums.map((x) => WT.severity(x, st.lim));
@@ -982,7 +1005,7 @@
     if (document.body.classList.contains('split')) windyEmbed();
   }
   document.querySelectorAll('.lay').forEach((b) => b.addEventListener('click', () => setLayer(b.dataset.layer)));
-  $('mapModel').innerHTML = WT.WIND_MODELS.map((m) => '<option value="' + m.id + '">' + m.name + '</option>').join('');
+  $('mapModel').innerHTML = WT.WIND_MODELS.filter((m) => !m.backup).map((m) => '<option value="' + m.id + '">' + m.name + '</option>').join('');
   $('mapModel').value = st.mapModel;
   $('mapModel').addEventListener('change', async (e) => {
     st.mapModel = e.target.value; LS.set('mapModel', st.mapModel);

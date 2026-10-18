@@ -39,8 +39,10 @@
 
   async function radarFrames() {
     if (!st.rv || Date.now() - st.rvAt > 5 * MIN) {
-      const r = await fetch(RV, { cache: 'no-store' });
-      if (!r.ok) throw new Error('RainViewer ' + r.status);
+      let r;
+      try { r = await fetch(RV, { cache: 'no-store' }); } catch (e) { WT.src && WT.src('radar', 'down'); throw e; }
+      if (!r.ok) { WT.src && WT.src('radar', 'down', { note: 'ответ ' + r.status }); throw new Error('RainViewer ' + r.status); }
+      WT.src && WT.src('radar', 'ok');
       st.rv = await r.json(); st.rvAt = Date.now();
     }
     const past = (st.rv.radar && st.rv.radar.past) || [];
@@ -70,9 +72,9 @@
             L.tileLayer(GIBS + s.id + '/default/' + iso + '/GoogleMapsCompatible_Level6/{z}/{y}/{x}.png', {
               maxNativeZoom: 6, maxZoom: 18, bounds: s.bounds, opacity: 1, pane: 'live',
               attribution: 'Спутник: <a href="https://earthdata.nasa.gov/gibs" target="_blank" rel="noopener">NASA GIBS / ESDIS</a> (GOES — NOAA, Himawari — JMA)',
-            }).addTo(g);
+            }).on('tileerror', satErr).on('tileload', satOk).addTo(g);
           }
-          WT.EUMETSAT(iso).addTo(g);
+          WT.EUMETSAT(iso).eachLayer((l) => l.on('tileerror', satErr).on('tileload', satOk)).addTo(g);
           const all = (o, grp) => grp.eachLayer((l) => (l.setOpacity ? l.setOpacity(o) : all(o, l)));
           g.setOpacity = (o) => all(o, g);
           return g;
@@ -81,6 +83,11 @@
     }
     return out;
   }
+
+  // спутник: отдельные плитки иногда не готовы — считаем, предупреждаем, только если ошибок много
+  let satBad = 0, satGood = 0;
+  function satErr() { satBad++; if (satBad > 6 && satBad > satGood) WT.src && WT.src('satellite', 'partial', { note: 'часть снимков не загрузилась (сервер спутника не ответил) — показано, что есть' }); }
+  function satOk() { satGood++; if (satGood > satBad) WT.src && WT.src('satellite', 'ok'); }
 
   function showFrame(i) {
     if (!st.group) return;

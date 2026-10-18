@@ -8,7 +8,7 @@
 <meta name="robots" content="noindex, nofollow">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.css">
-<link rel="stylesheet" href="style.css?v=93f7206bae">
+<link rel="stylesheet" href="style.css?v=acdf64dcfc">
 </head>
 <body>
 <div id="stage">
@@ -29,6 +29,8 @@
 <div id="topbar">
   <div class="brand"><span class="logo">◈</span> Weather Tracker</div>
   <button id="verBadge" class="ver" hidden title="Версия и последнее изменение"></button>
+  <button id="alertBtn" class="alert" hidden aria-controls="notice" title="Источники погоды: что работает, что нет">⚠</button>
+  <div id="langSw" class="lang" role="group" title="Язык страницы"><button data-lang="en">EN</button><i>|</i><button data-lang="ru">RU</button></div>
   <button id="btnPanel" class="btn">☰ Маршрут</button>
   <button id="btnTable" class="btn" disabled>Таблица</button>
   <button id="btnCharts" class="btn" disabled>Графики</button>
@@ -79,6 +81,7 @@
         <p><b>Волна и зыбь:</b> ECMWF WAM, NOAA WaveWatch III, DWD GWAM, Météo-France MFWAM.</p>
         <p><b>Течения:</b> Copernicus Marine / Mercator — тот же источник, что у Windy.</p>
         <p>Данные собирает бесплатный сервис Open-Meteo. На карте и в карточке — среднее (медиана) по моделям и разброс; значок показывает, согласны ли модели.</p>
+        <p><b>Резерв</b> (если Open-Meteo недоступен или исчерпан его лимит) — напрямую от метеослужб, бесплатно: ECMWF через MET Norway (Норвегия), GFS и волна WaveWatch III от NOAA (США). Что сейчас работает — значок ⚠ вверху.</p>
         <p class="muted">Прогноз — подсказка для планирования, не замена NAVTEX, официальных прогнозов ГМССБ и решения капитана.</p>
       </div>
     </details>
@@ -141,8 +144,12 @@
 </footer>
 
 <div id="toast" hidden></div>
-<!-- подсказка, что случилось и что делать (не исчезает сама) -->
-<div id="notice" hidden><div id="noticeText"></div><button id="noticeClose" class="btn sm" title="Закрыть">✕</button></div>
+<!-- окно «Источники погоды»: открывается само при новой проблеме, ✕ закрывает, значок ⚠ вверху открывает снова -->
+<div id="notice" hidden>
+  <div class="n-head"><b>Источники погоды</b><span class="sp"></span><button id="noticeClose" class="btn sm" title="Закрыть — значок ⚠ вверху откроет снова">✕</button></div>
+  <div id="noticeText" hidden></div>
+  <div id="sources"></div>
+</div>
 <div id="verPop" hidden></div>
 
 <!-- сравнение маршрутов -->
@@ -164,12 +171,15 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.js"></script>
-<script src="scales.js?v=93f7206bae"></script>
-<script src="route.js?v=93f7206bae"></script>
-<script src="weather.js?v=93f7206bae"></script>
-<script src="contour.js?v=93f7206bae"></script>
-<script src="live.js?v=93f7206bae"></script>
-<script src="variants.js?v=93f7206bae"></script>
-<script src="app.js?v=93f7206bae"></script>
+<script src="i18n.js?v=acdf64dcfc"></script>
+<script src="scales.js?v=acdf64dcfc"></script>
+<script src="route.js?v=acdf64dcfc"></script>
+<script src="weather.js?v=acdf64dcfc"></script>
+<script src="contour.js?v=acdf64dcfc"></script>
+<script src="sources.js?v=acdf64dcfc"></script>
+<script src="backup.js?v=acdf64dcfc"></script>
+<script src="live.js?v=acdf64dcfc"></script>
+<script src="variants.js?v=acdf64dcfc"></script>
+<script src="app.js?v=acdf64dcfc"></script>
 </body>
 </html>

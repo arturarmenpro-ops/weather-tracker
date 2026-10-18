@@ -8,11 +8,14 @@
     [22, 'свежий'], [28, 'сильный'], [34, 'крепкий'], [41, 'очень крепкий'],
     [48, 'шторм'], [56, 'сильный шторм'], [64, 'жестокий шторм'], [Infinity, 'ураган'],
   ];
+  const BF_EN = ['calm', 'light air', 'light breeze', 'gentle breeze', 'moderate breeze', 'fresh breeze', 'strong breeze',
+    'near gale', 'gale', 'strong gale', 'storm', 'violent storm', 'hurricane'];
+  const en = () => WT.lang === 'en'; // язык страницы (i18n.js)
   WT.beaufort = function (kn) {
     if (kn == null || isNaN(kn)) return null;
     const k = Math.round(kn); // таблица WMO — в целых узлах, и показываем мы тоже целые узлы
-    for (let i = 0; i < BF.length; i++) if (k < BF[i][0]) return { n: i, name: BF[i][1] };
-    return { n: 12, name: 'ураган' };
+    for (let i = 0; i < BF.length; i++) if (k < BF[i][0]) return { n: i, name: en() ? BF_EN[i] : BF[i][1] };
+    return { n: 12, name: en() ? BF_EN[12] : 'ураган' };
   };
   // нижняя граница балла в узлах (для линий на графике); с округлением граница — на полузле ниже
   WT.BF_KN = [0, 1, 4, 7, 11, 17, 22, 28, 34, 41, 48, 56, 64];
@@ -33,9 +36,10 @@
   ];
   WT.douglasSea = function (h) {
     if (h == null || isNaN(h)) return null;
-    if (h <= 0) return { n: 0, name: DS[0][1], en: DS[0][2] };
-    for (let i = 1; i < DS.length; i++) if (h <= DS[i][0]) return { n: i, name: DS[i][1], en: DS[i][2] };
-    return { n: 9, name: DS[9][1], en: DS[9][2] };
+    const o = (i) => ({ n: i, name: DS[i][en() ? 2 : 1], en: DS[i][2] });
+    if (h <= 0) return o(0);
+    for (let i = 1; i < DS.length; i++) if (h <= DS[i][0]) return o(i);
+    return o(9);
   };
 
   // ---- Дуглас: зыбь по высоте и длине (длина из периода: L = 1.56·T²) ----
@@ -59,7 +63,7 @@
     else if (h < 2) n = len === 2 ? 2 : 1;
     else if (h <= 4) n = 3 + len;
     else n = 6 + len;
-    return { n, name: SW[n][0], en: SW[n][1], length: L };
+    return { n, name: SW[n][en() ? 1 : 0], en: SW[n][1], length: L };
   };
 
   // ---- направления ----
@@ -72,13 +76,10 @@
     if (fromDeg == null || course == null) return '';
     let r = (((fromDeg - course) % 360) + 360) % 360; // 0 = прямо в нос
     const a = Math.round(r > 180 ? 360 - r : r);
-    const side = a === 0 || a === 180 ? '' : r < 180 ? ' пр. борта' : ' лев. борта';
-    let word;
-    if (a <= 22.5) word = 'в нос';
-    else if (a <= 67.5) word = 'в скулу';
-    else if (a <= 112.5) word = 'в траверз';
-    else if (a <= 157.5) word = 'в раковину';
-    else word = 'в корму';
+    const E = en();
+    const side = a === 0 || a === 180 ? '' : r < 180 ? (E ? ' stbd' : ' пр. борта') : (E ? ' port' : ' лев. борта');
+    const W = E ? ['ahead', 'on the bow', 'abeam', 'on the quarter', 'astern'] : ['в нос', 'в скулу', 'в траверз', 'в раковину', 'в корму'];
+    const word = W[a <= 22.5 ? 0 : a <= 67.5 ? 1 : a <= 112.5 ? 2 : a <= 157.5 ? 3 : 4];
     return word + ', ' + a + '°' + side;
   };
 
@@ -87,8 +88,10 @@
     if (setDeg == null || drift == null || course == null) return '';
     const r = ((setDeg - course) * Math.PI) / 180;
     const along = drift * Math.cos(r), cross = drift * Math.sin(r);
-    const a = (along >= 0 ? '+' : '−') + Math.abs(along).toFixed(1) + ' уз ' + (along >= 0 ? 'попутное' : 'встречное');
-    const c = Math.abs(cross) < 0.05 ? '' : ', сносит ' + (cross > 0 ? 'вправо ' : 'влево ') + Math.abs(cross).toFixed(1) + ' уз';
+    const E = en();
+    const a = (along >= 0 ? '+' : '−') + Math.abs(along).toFixed(1) + (E ? ' kn ' + (along >= 0 ? 'fair' : 'foul') : ' уз ' + (along >= 0 ? 'попутное' : 'встречное'));
+    const c = Math.abs(cross) < 0.05 ? '' : E ? ', sets to ' + (cross > 0 ? 'stbd ' : 'port ') + Math.abs(cross).toFixed(1) + ' kn'
+      : ', сносит ' + (cross > 0 ? 'вправо ' : 'влево ') + Math.abs(cross).toFixed(1) + ' уз';
     return a + c;
   };
 
@@ -115,13 +118,13 @@
   };
   WT.fmtDay = function (ms, tzHours) {
     const d = new Date(ms + (tzHours || 0) * 3600e3);
-    const wd = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'][d.getUTCDay()];
+    const wd = (en() ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'])[d.getUTCDay()];
     return wd + ' ' + p2(d.getUTCDate()) + '.' + p2(d.getUTCMonth() + 1);
   };
   WT.isoDate = (ms) => new Date(ms).toISOString().slice(0, 10);
   WT.fmtDur = function (h) {
     const d = Math.floor(h / 24), r = Math.round(h - d * 24);
-    return (d ? d + ' сут ' : '') + r + ' ч';
+    return en() ? (d ? d + ' d ' : '') + r + ' h' : (d ? d + ' сут ' : '') + r + ' ч';
   };
 
   // ---- статусы и цвета (тёмная тема) ----

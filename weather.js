@@ -15,6 +15,7 @@
     { id: 'dwd_gwam', name: 'DWD GWAM', full: 'DWD GWAM (Германия)', color: '#199e70', split: true },
     { id: 'meteofrance_wave', name: 'MF MFWAM', full: 'Météo-France MFWAM', color: '#c98500', split: true },
   ];
+  const mainOf = (L) => L.filter((m) => !m.backup); // резервные модели (backup.js) у Open-Meteo не спрашиваем
   WT.CURRENT_SOURCE = 'Copernicus Marine / Mercator (через Météo-France SMOC)';
 
   const WIND_VARS = ['wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'pressure_msl'];
@@ -44,31 +45,78 @@
   const CANCELLED = 'cancelled';
   const say = (x, msg) => { const c = ctxOf(x); if (c.status) c.status(msg); };
   WT.isCancelled = (e) => e && e.message === CANCELLED;
-  WT.staleAge = 0; // если сервер отдал сохранённый прогноз без связи — сколько секунд ему
+  WT.staleAge = 0; // если показан сохранённый прогноз (сервер на Маке или память браузера) — сколько секунд ему
+
+  // ---------- память браузера (телефон капитана): тот же запрос в течение часа не тратит лимит Open-Meteo,
+  // а если Open-Meteo недоступен — берём сохранённый ответ не старше 12 часов ----------
+  const OMC = 'wt-om-1', FRESH = 3600e3, STALE = 12 * 3600e3;
+  async function memGet(url, maxAge) {
+    try {
+      if (!window.caches) return null;
+      const r = await (await caches.open(OMC)).match(url);
+      if (!r) return null;
+      const age = Date.now() - (+r.headers.get('X-WT-At') || 0);
+      if (age > maxAge) return null;
+      const j = await r.json();
+      return { list: Array.isArray(j) ? j : [j], age };
+    } catch (e) { return null; }
+  }
+  function memPut(url, j) {
+    try {
+      if (window.caches) caches.open(OMC).then((c) => c.put(url, new Response(JSON.stringify(j), { headers: { 'Content-Type': 'application/json', 'X-WT-At': String(Date.now()) } }))).catch(() => {});
+    } catch (e) { /* без памяти */ }
+  }
+  try { // старше 12 часов — убрать (раз при открытии страницы)
+    if (window.caches) caches.open(OMC).then(async (c) => { for (const q of await c.keys()) { const r = await c.match(q); if (!r || Date.now() - (+r.headers.get('X-WT-At') || 0) > STALE) await c.delete(q); } }).catch(() => {});
+  } catch (e) { /* без памяти */ }
+
   async function om(url, x) {
     const ctx = ctxOf(x), alive = () => !ctx.alive || ctx.alive();
+    const hit = await memGet(url, FRESH);
+    if (hit) return hit.list;
+    // не получилось — сохранённый ответ (до 12 ч), иначе ошибка (тогда страница возьмёт резерв)
+    const orSaved = async (err) => {
+      const old = await memGet(url, STALE);
+      if (!old) throw err;
+      WT.staleAge = Math.max(WT.staleAge, old.age / 1000);
+      return old.list;
+    };
+    const blocked = WT.srcBlocked && WT.srcBlocked('forecast'); // лимит ещё действует — зря не стучимся
+    if (blocked) return orSaved(blocked);
     for (let attempt = 0; attempt < 3; attempt++) {
       if (!alive()) throw new Error(CANCELLED);
       let r;
-      try { r = await get(url); } catch (e) { throw new Error('Нет интернета или Open-Meteo недоступен'); }
+      try { r = await get(url); } catch (e) { WT.src && WT.src('forecast', 'down', { note: 'нет интернета или сервис недоступен' }); return orSaved(new Error('Нет интернета или Open-Meteo недоступен')); }
       let j;
-      try { j = await r.json(); } catch (e) { throw new Error('Сервер ответил не JSON (' + r.status + ')'); }
+      try { j = await r.json(); } catch (e) { WT.src && WT.src('forecast', 'down', { note: 'сервис ответил ошибкой ' + r.status }); return orSaved(new Error('Open-Meteo ответил ошибкой (' + r.status + ')')); }
       if (r.ok && !j.error) {
         const stale = +(r.headers.get('X-WT-Stale') || 0);
         if (stale) WT.staleAge = Math.max(WT.staleAge, stale);
+        else memPut(url, j);
+        WT.src && WT.src('forecast', 'ok');
         return Array.isArray(j) ? j : [j];
       }
       const msg = j.reason || j.error || 'ошибка ' + r.status;
-      if (/daily/i.test(msg)) throw new Error('Дневной лимит бесплатного Open-Meteo исчерпан — попробуйте завтра (сброс в 00:00 UTC)');
-      if (/hourly/i.test(msg)) throw new Error('Часовой лимит бесплатного Open-Meteo исчерпан — попробуйте в начале следующего часа');
+      const DAY = 'Дневной лимит бесплатного Open-Meteo исчерпан (сброс в 00:00 UTC)', HOUR = 'Часовой лимит бесплатного Open-Meteo исчерпан (сброс в начале часа UTC)';
+      if (/daily/i.test(msg)) { WT.src && WT.src('forecast', 'day', { until: WT.limitReset('day'), err: DAY }); return orSaved(new Error(DAY)); }
+      if (/hourly/i.test(msg)) { WT.src && WT.src('forecast', 'hour', { until: WT.limitReset('hour'), err: HOUR }); return orSaved(new Error(HOUR)); }
       if (/minutely|limit|too many/i.test(msg) && attempt < 2) { // минутный лимит — ждём и повторяем
         ctx.status && ctx.status('Лимит запросов Open-Meteo в минуту — жду минуту…');
+        WT.src && WT.src('forecast', 'limit', { until: WT.limitReset('minute') });
         for (let k = 0; k < 61 && alive(); k++) await new Promise((res) => setTimeout(res, 1000));
         continue;
       }
-      throw new Error(msg);
+      WT.src && WT.src('forecast', 'partial', { note: 'ответил: ' + msg });
+      return orSaved(new Error(msg));
     }
   }
+
+  // проверка «основной снова работает?» одним маленьким запросом (своя точка каждый раз — сохранённый ответ не подменит)
+  WT.probeForecast = async function () {
+    const lat = (Date.now() % 997) / 100;
+    try { await om(FC + '?latitude=' + lat.toFixed(2) + '&longitude=0&hourly=pressure_msl&forecast_days=1&timezone=GMT'); return true; }
+    catch (e) { return false; }
+  };
 
   // даты запроса: не раньше 90 дней назад и не дальше 15 суток вперёд
   function dateRange(t0, t1) {
@@ -105,10 +153,10 @@
     const common = '&timezone=GMT&wind_speed_unit=kn&cell_selection=sea&start_date=' + rng.start + '&end_date=' + rng.end;
 
     say(onStatus, 'Ветер: ECMWF, GFS, ICON…');
-    const w = await multi(FC, 'hourly=' + WIND_VARS.join(',') + '&models=' + WT.WIND_MODELS.map((m) => m.id).join(',') + common, samples, onStatus);
+    const w = await multi(FC, 'hourly=' + WIND_VARS.join(',') + '&models=' + mainOf(WT.WIND_MODELS).map((m) => m.id).join(',') + common, samples, onStatus);
     say(onStatus, 'Волна и зыбь: 4 модели…');
-    const v = await multi(MAR, 'hourly=' + WAVE_VARS.join(',') + '&models=' + WT.WAVE_MODELS.map((m) => m.id).join(',') + common, samples, onStatus);
-    const v2 = await multi(MAR, 'hourly=' + SPLIT_VARS.join(',') + '&models=' + WT.WAVE_MODELS.filter((m) => m.split).map((m) => m.id).join(',') + common, samples, onStatus);
+    const v = await multi(MAR, 'hourly=' + WAVE_VARS.join(',') + '&models=' + mainOf(WT.WAVE_MODELS).map((m) => m.id).join(',') + common, samples, onStatus);
+    const v2 = await multi(MAR, 'hourly=' + SPLIT_VARS.join(',') + '&models=' + mainOf(WT.WAVE_MODELS).filter((m) => m.split).map((m) => m.id).join(',') + common, samples, onStatus);
     say(onStatus, 'Течения…');
     const c = await multi(MAR, 'hourly=' + CUR_VARS.join(',') + common, samples, onStatus);
 
@@ -116,7 +164,7 @@
       const o = out[k];
       if (w[k]) {
         const h = w[k].hourly, i = tIndex(w[k])(s.t);
-        for (const m of WT.WIND_MODELS) {
+        for (const m of mainOf(WT.WIND_MODELS)) {
           const spd = at(pick(h, 'wind_speed_10m', m.id), i);
           if (spd == null) continue;
           o.wind[m.id] = { spd, dir: at(pick(h, 'wind_direction_10m', m.id), i), gust: at(pick(h, 'wind_gusts_10m', m.id), i), pres: at(pick(h, 'pressure_msl', m.id), i) };
@@ -125,7 +173,7 @@
       if (v[k]) {
         const h = v[k].hourly, i = tIndex(v[k])(s.t);
         const h2 = v2[k] && v2[k].hourly, i2 = v2[k] ? tIndex(v2[k])(s.t) : -1;
-        for (const m of WT.WAVE_MODELS) {
+        for (const m of mainOf(WT.WAVE_MODELS)) {
           const hs = at(pick(h, 'wave_height', m.id), i);
           if (hs == null) continue;
           const g = (n) => (WAVE_VARS.includes(n) ? at(pick(h, n, m.id), i) : m.split && h2 ? at(pick(h2, n, m.id), i2) : null);
@@ -207,8 +255,9 @@
   WT.lerpSummary = function (a, b, f) {
     if (!a) return b; if (!b) return a;
     const o = {};
-    for (const k of Object.keys(a)) {
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { // модель есть только в одной из точек — берём её значение
       const x = a[k], y = b[k];
+      if (x === undefined || y === undefined) { o[k] = x === undefined ? y : x; continue; }
       if (typeof x === 'number' && typeof y === 'number') {
         if (/Dir$/.test(k)) { let d = ((y - x + 540) % 360) - 180; o[k] = (x + d * f + 360) % 360; }
         else o[k] = x + (y - x) * f;

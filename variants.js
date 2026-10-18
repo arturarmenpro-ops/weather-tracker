@@ -17,6 +17,7 @@
   // из voyage.json — только проверенные поля
   WT.parseVariants = function (raw) {
     return (Array.isArray(raw) ? raw : []).slice(0, 4).map((v, k) => {
+      const rawIdx = k;
       const wps = ((v.route && v.route.wps) || []).map((w, i) => ({
         name: String(w.name || 'WP' + (i + 1)).slice(0, 30), lat: +w.lat, lon: +w.lon, geom: w.geom === 'GC' ? 'GC' : 'RL', speed: num(w.speed),
       })).filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lon) && Math.abs(w.lat) <= 90 && Math.abs(w.lon) <= 180);
@@ -27,7 +28,7 @@
         dep: Date.parse(v.dep), speed: num(v.speed), startIdx: Math.max(0, parseInt(v.startIdx, 10) || 0),
         speeds: Object.fromEntries(Object.entries(v.speeds || {}).filter(([, x]) => num(x)).map(([k2, x]) => [k2, num(x)])),
         pos: typeof v.pos === 'string' ? v.pos.slice(0, 60) : '',
-        color: COLORS[k % COLORS.length],
+        color: COLORS[k % COLORS.length], rawIdx,
       };
     }).filter((v) => v.route.wps.length >= 2);
   };
@@ -35,19 +36,24 @@
   // посчитать варианты: путь, точки расчёта, погода по точкам (последовательно — бережём лимит Open-Meteo)
   WT.buildVariants = async function (variants, main, ctx) {
     V.list = [];
+    const out = [];
     for (const v of variants) {
       let startPos = null;
       if (v.pos) { const f = WT.findLatLon(v.pos); if (f) startPos = { lat: f.lat, lon: f.lon }; }
+      // своей позиции/времени нет, а основной считается от позиции судна — вариант тоже от этой позиции и в это время
+      if (!startPos && !Number.isFinite(v.dep) && main.startPos) startPos = main.startPos;
       const voy = WT.buildVoyage(v.route, {
         startIdx: Math.min(v.startIdx, v.route.wps.length - 2), depMs: Number.isFinite(v.dep) ? v.dep : main.dep,
         speed: v.speed || main.speed, speeds: v.speeds, startPos,
       });
       const samples = WT.samples(voy, main.stepH);
       ctx.status && ctx.status('Вариант «' + v.name + '»: погода по маршруту…');
-      const wx = await WT.fetchRouteWeather(samples, ctx);
+      const wx = await WT.fetchRouteWeatherAny(samples, ctx);
+      if (ctx.alive && !ctx.alive()) throw new Error('cancelled');
       const sums = wx.map((w) => WT.summarize(w));
-      V.list.push(Object.assign({}, v, { voy, samples, sums, sev: sums.map((s) => WT.severity(s, main.lim)) }));
+      out.push(Object.assign({}, v, { voy, samples, sums, sev: sums.map((s) => WT.severity(s, main.lim)) }));
     }
+    V.list = out; // все варианты разом — без «полузагруженных»
     return V.list;
   };
   WT.variantsList = () => V.list;
@@ -67,12 +73,12 @@
       const line = WT.routeLine(v.route, 0).map(([la, lo]) => [la, (ref = near(lo, ref))]);
       L.polyline(line, { pane: 'route', color: '#000', weight: 6, opacity: 0.45, interactive: false }).addTo(V.layer);
       L.polyline(line, { pane: 'route', color: v.color, weight: 3.5, opacity: 0.95, dashArray: '8 6' })
-        .bindTooltip(esc(v.name) + ' · ' + Math.round(v.voy.dist) + " миль · ETA " + WT.fmtTime(v.voy.eta) + ' UTC', { sticky: true })
+        .bindTooltip('<span class="notr">' + esc(v.name) + '</span> · ' + Math.round(v.voy.dist) + " миль · ETA " + WT.fmtTime(v.voy.eta) + ' UTC', { sticky: true })
         .addTo(V.layer);
       v.samples.forEach((s, i) => {
         if (v.sev[i] !== 'critical') return;
         L.circleMarker([s.lat, near(s.lon, refLon)], { pane: 'route', radius: 4, color: '#000', weight: 1, fillColor: WT.STATUS.critical, fillOpacity: 1 })
-          .bindTooltip(esc(v.name) + ' · ' + WT.fmtTime(s.t) + ' UTC · сверх предела', { direction: 'top' }).addTo(V.layer);
+          .bindTooltip('<span class="notr">' + esc(v.name) + '</span> · ' + WT.fmtTime(s.t) + ' UTC · сверх предела', { direction: 'top' }).addTo(V.layer);
       });
     }
   };
@@ -105,7 +111,7 @@
       const s = sumAt(v, t);
       const txt = !s || s.windSpd == null ? 'нет прогноза / вне рейса'
         : WT.compass(s.windDir) + ' ' + f0(s.windSpd) + ' уз · ' + WT.beaufort(s.windSpd).n + ' Бф' + (s.hs != null ? ' · волна ' + f1(s.hs) + ' м' : '');
-      return '<div class="s"><span class="lg"><i style="background:' + v.color + '"></i>' + esc(v.name) + '</span>: ' + txt + '</div>';
+      return '<div class="s"><span class="lg"><i style="background:' + v.color + '"></i><span class="notr">' + esc(v.name) + '</span></span>: ' + txt + '</div>';
     }).join('');
     return '<div class="row"><div class="k">Варианты в это же время</div>' + rows + '</div>';
   };
@@ -116,27 +122,35 @@
     const limKn = WT.bfEdge(lim.bf);
     samples.forEach((s, i) => {
       const x = sums[i];
+      // длительность, которую «представляет» точка: половина промежутков до соседних точек
+      const prev = i > 0 ? samples[i - 1].t : s.t, next = i < samples.length - 1 ? samples[i + 1].t : s.t;
+      const dur = (next - prev) / 2 / H;
       if (!x || x.windSpd == null) { noData++; return; }
       if (wMax == null || x.windSpd > wMax) { wMax = x.windSpd; wT = s.t; }
       if (x.hs != null && (hMax == null || x.hs > hMax)) { hMax = x.hs; hT = s.t; }
-      if (x.windSpd >= limKn) hrsW += stepH;
-      if (x.hs != null && x.hs >= lim.hs) hrsH += stepH;
+      if (x.windSpd >= limKn) hrsW += dur;
+      if (x.hs != null && x.hs >= lim.hs) hrsH += dur;
     });
-    return { name, color, dist: voy.dist, eta: voy.eta, wMax, wT, hMax, hT, hrsW, hrsH, noData, n: samples.length };
+    return { name, color, dist: voy.dist, eta: voy.eta, wMax, wT, hMax, hT, hrsW: Math.round(hrsW), hrsH: Math.round(hrsH), noData, n: samples.length };
   }
+
+  // название маршрута — текст людей, не переводим (класс notr); «Основной:» — надпись страницы
+  const nameHtml = (n) => (/^Основной: /.test(n) ? 'Основной: <span class="notr">' + esc(n.slice(10)) + '</span>' : '<span class="notr">' + esc(n) + '</span>');
 
   // окно «Сравнение маршрутов»: таблица + два графика по датам (одна линия на маршрут)
   WT.renderCompare = function (box, main, lim, stepH, onMakeMain) {
     const all = [stats('Основной: ' + main.name, MAIN_COLOR, main.voy, main.samples, main.sums, lim, stepH)]
       .concat(V.list.map((v) => stats(v.name, v.color, v.voy, v.samples, v.sums, lim, stepH)));
-    const best = all.slice().sort((a, b) => (a.hrsW + a.hrsH) - (b.hrsW + b.hrsH) || (a.wMax || 0) - (b.wMax || 0))[0];
+    // «лучший» — только среди маршрутов, где прогноз есть на всём пути
+    const full = all.filter((r) => !r.noData && r.wMax != null);
+    const best = full.length > 1 ? full.slice().sort((a, b) => (a.hrsW + a.hrsH) - (b.hrsW + b.hrsH) || (a.wMax || 0) - (b.wMax || 0))[0] : null;
     const tr = all.map((r, k) => {
-      const ok = r.hrsW + r.hrsH === 0;
-      return '<tr><td><span class="lg"><i style="background:' + r.color + '"></i>' + esc(r.name) + '</span>' + (r === best ? ' <b class="agree good">лучший</b>' : '') + '</td>' +
+      const ok = r.hrsW + r.hrsH === 0 && !r.noData;
+      return '<tr><td><span class="lg"><i style="background:' + r.color + '"></i>' + nameHtml(r.name) + '</span>' + (r === best ? ' <b class="agree good">лучший</b>' : '') + '</td>' +
         '<td>' + Math.round(r.dist) + "'</td><td>" + WT.fmtTime(r.eta) + '</td>' +
         '<td>' + (r.wMax == null ? '—' : f0(r.wMax) + ' уз · ' + WT.beaufort(r.wMax).n + ' Бф<br><span class="muted">' + WT.fmtTime(r.wT) + '</span>') + '</td>' +
         '<td>' + (r.hMax == null ? '—' : f1(r.hMax) + ' м · Д' + WT.douglasSea(r.hMax).n + '<br><span class="muted">' + WT.fmtTime(r.hT) + '</span>') + '</td>' +
-        '<td>' + (ok ? '<span class="agree good">✓ нет</span>' : '<span class="agree critical">ветер ' + r.hrsW + ' ч · волна ' + r.hrsH + ' ч</span>') + '</td>' +
+        '<td>' + (ok ? '<span class="agree good">✓ нет</span>' : r.hrsW + r.hrsH ? '<span class="agree critical">ветер ' + r.hrsW + ' ч · волна ' + r.hrsH + ' ч</span>' : '<span class="agree none">нет данных на части пути</span>') + '</td>' +
         '<td>' + (r.noData ? r.noData + ' из ' + r.n : '—') + '</td>' +
         '<td>' + (k > 0 ? '<button class="btn sm" data-main="' + (k - 1) + '">Сделать основным</button>' : '') + '</td></tr>';
     }).join('');
@@ -175,6 +189,6 @@
       });
       if (d) svg += '<path d="' + d + '" fill="none" stroke="' + r.color + '" stroke-width="2" stroke-linejoin="round"/>';
     }
-    el.innerHTML = '<div class="ch-head"><b>' + title + '</b>' + routes.map((r) => '<span class="lg"><i style="background:' + r.color + '"></i>' + esc(r.name) + '</span>').join('') + '</div>' + svg + '</svg>';
+    el.innerHTML = '<div class="ch-head"><b>' + title + '</b>' + routes.map((r) => '<span class="lg"><i style="background:' + r.color + '"></i>' + nameHtml(r.name) + '</span>').join('') + '</div>' + svg + '</svg>';
   }
 })();
