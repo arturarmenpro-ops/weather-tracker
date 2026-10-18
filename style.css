@@ -188,6 +188,11 @@ body.split #legend { right: calc(50% + 10px); }
 /* сообщения */
 #toast { pointer-events: none; position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #0f0f0e; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; z-index: 2000; max-width: 80vw; }
 #toast.err { border-color: var(--critical); }
+#notice { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tl-h) + 10px); width: min(440px, calc(100vw - 12px)); z-index: 1003;
+  display: flex; gap: 8px; align-items: flex-start; background: #0f0f0e; border: 1px solid var(--warning); border-radius: var(--r); padding: 10px 12px; }
+#noticeText { flex: 1; min-width: 0; font-size: 13px; }
+#noticeText p { margin: 0 0 5px; }
+#noticeText p:last-child { margin-bottom: 0; }
 
 /* таблица */
 #modal, .modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 20px; }

@@ -45,6 +45,20 @@
     if (msg && ms !== 0) toastTimer = setTimeout(() => (t.hidden = true), ms || (isErr ? 9000 : 3500));
   }
 
+  // подсказка внизу карты: что не получилось и что делать — висит, пока не закроют или не загрузится
+  function notice(html) { $('notice').hidden = !html; $('noticeText').innerHTML = html || ''; }
+  $('noticeClose').addEventListener('click', () => notice(''));
+  function wxFailNotice(what, e) {
+    let h = '<p><b>' + what + '</b> ' + esc(e.message) + '</p>';
+    if (/лимит/i.test(e.message)) {
+      const m = Math.max(1, Math.round((Math.ceil(Date.now() / 864e5) * 864e5 - Date.now()) / 60e3));
+      h += '<p>Бесплатный сервис погоды даёт ограниченное число запросов в сутки на один интернет-адрес. Лимит сбросится через ' +
+        (m >= 60 ? Math.floor(m / 60) + ' ч ' : '') + (m % 60) + ' мин (в 00:00 UTC) — тогда обновите страницу.</p>';
+    } else h += '<p>Проверьте интернет и обновите страницу.</p>';
+    h += '<p class="muted">Маршрут на карте показан. Окно погоды (с ручкой, которая сворачивает его вниз), раскраска маршрута, таблица и графики появятся, когда прогноз загрузится.</p>';
+    notice(h);
+  }
+
   // ======================= МАРШРУТЫ =======================
   async function loadRouteList() {
     let list = [];
@@ -234,6 +248,7 @@
     $('build').disabled = true;
     st.builtPos = posTxt;
     const alive = () => id === buildId;
+    notice('');
     try {
       toast('Загружаю прогноз по маршруту…', false, 0);
       WT.staleAge = 0;
@@ -267,7 +282,9 @@
       await loadGrid(id);
     } catch (e) {
       if (WT.isCancelled(e) || !alive()) return;
-      toast('Ошибка загрузки погоды: ' + e.message, true);
+      toast('');
+      wxFailNotice('Погода по маршруту не загрузилась.', e);
+      setTime(st.t); // время и судно на ленте — и без прогноза
     } finally {
       if (id === buildId) $('build').disabled = false;
     }
@@ -290,7 +307,8 @@
       toast('Карта погоды готова (сетка ' + G.step + '°)', false, 2000);
     } catch (e) {
       if (WT.isCancelled(e) || !alive()) return;
-      toast('Карта погоды не загрузилась: ' + e.message, true);
+      toast('');
+      wxFailNotice('Цветная карта погоды не загрузилась.', e);
     }
   }
 
