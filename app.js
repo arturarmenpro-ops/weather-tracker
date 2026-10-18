@@ -384,7 +384,7 @@
     const togo = v.dist - p.gone;
     $('cardHead').innerHTML =
       '<div class="t"><span class="tg"></span>' + WT.fmtTime(st.t) + ' UTC <span class="muted" style="font-weight:400;font-size:12px">· судовое ' + WT.fmtTime(st.t, st.tz) + '</span></div>' +
-      '<div class="sum">' + shortWx(s) + '</div>' +
+      '<div class="sum"><span class="tg"></span>' + shortWx(s) + '</div>' +
       '<div class="pos">' + WT.fmtLat(p.lat) + ' ' + WT.fmtLon(p.lon) + ' · КК ' + WT.deg3(p.course) + ' · ' + f1(p.sog) + ' уз</div>' +
       '<div class="pos">пройдено ' + f0(p.gone) + "' · осталось " + f0(togo) + "' · ETA " + WT.fmtTime(v.eta) + ' UTC</div>';
     if (!s || (s.windSpd == null && s.hs == null)) { $('cardBody').innerHTML = '<div class="nodata">Нет прогноза на это время (дальше горизонта: ветер ~16 сут, волна ~10 сут).</div>'; return; }

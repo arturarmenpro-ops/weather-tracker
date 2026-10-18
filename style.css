@@ -116,10 +116,11 @@ body.charts.live #layers { max-height: calc(100% - var(--tl-h) - var(--ch-h) - 1
 .card-h .tg { float: right; color: var(--muted); font-weight: 400; }
 .card-h .tg::after { content: "▾"; }
 .card-h .sum { display: none; font-size: 14px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
-/* свёрнутое окно: только время и главное — ветер и волна */
-#card.collapsed #cardBody, #card.collapsed .card-h .pos { display: none; }
+/* свёрнутое окно: одна строка — ветер и волна (время и так видно на ленте внизу) */
+#card.collapsed #cardBody, #card.collapsed .card-h .pos, #card.collapsed .card-h .t { display: none; }
 #card.collapsed .card-h .sum { display: block; }
-#card.collapsed .card-h { border-bottom: 0; padding-bottom: 9px; }
+#card.collapsed .card-h { border-bottom: 0; padding-bottom: 8px; }
+#card.collapsed .card-h .sum { margin-top: 0; }
 #card.collapsed .card-h .tg::after { content: "▴"; }
 .card-h .t { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .card-h .pos { color: var(--text-2); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
