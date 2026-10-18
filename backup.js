@@ -213,13 +213,18 @@
     const nt = times.length, np = g.pts.length;
     const mk = () => Array.from({ length: nt }, () => new Array(np).fill(null));
     const G = { ...g, times, windModel: 'bk_gfs', backup: true, visSource: 'нет в резерве', wind: { spd: mk(), u: mk(), v: mk() }, gust: mk(), pres: mk(), rain: mk(), cloud: mk(), vis: mk(), hs: mk(), sw: mk(), ww: mk(), cur: { spd: mk(), u: mk(), v: mk() } };
+    // значение в момент t: два соседних срока NOAA (обычно через 3 ч) и линейно между ними; пропуск в данных > 6 ч — пусто
     const lerp = (src, t, k, f) => {
-      const x = (t - src.times[0]) / (3 * H), i = Math.floor(x);
-      if (i < 0 || i >= src.times.length || Math.abs(src.times[i] - (src.times[0] + i * 3 * H)) > 1) return null;
-      const r0 = src.get(i, k), r1 = i + 1 < src.times.length ? src.get(i + 1, k) : r0;
-      const v0 = r0 && r0[f], v1 = r1 && r1[f];
-      if (v0 == null) return x - i < 0.5 ? null : v1 == null ? null : v1;
-      return v1 == null ? v0 : v0 + (v1 - v0) * (x - i);
+      const T = src.times;
+      if (t < T[0] || t > T[T.length - 1]) return null;
+      let lo = 0, hi = T.length - 1;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (T[m] <= t) lo = m; else hi = m - 1; }
+      const j = Math.min(lo + 1, T.length - 1);
+      if (T[j] - T[lo] > 6 * H) return null;
+      const fr = j === lo ? 0 : (t - T[lo]) / (T[j] - T[lo]);
+      const r0 = src.get(lo, k), r1 = src.get(j, k), v0 = r0 && r0[f], v1 = r1 && r1[f];
+      if (v0 == null) return v1 != null && fr >= 0.5 ? v1 : null;
+      return v1 == null ? v0 : v0 + (v1 - v0) * fr;
     };
     for (let ti = 0; ti < nt; ti++) {
       const t = times[ti];

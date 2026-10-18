@@ -44,6 +44,7 @@
     'Закрыть': 'Close', 'Записать этот рейс в voyage.json — его покажет страница по ссылке': 'Write this voyage to voyage.json — the link page will show it',
     'Источники погоды: что работает, что нет — нажмите': 'Weather sources: what works and what does not — tap', 'Источники погоды: что работает, что нет': 'Weather sources: what works and what does not',
     'Источники погоды снова работают': 'Weather sources work again', 'Поставить Windy в точку и время судна': "Set Windy to the ship's point and time",
+    '⟳ Обновить': '⟳ Update', 'есть новая версия': 'new version available', 'Нажмите, чтобы загрузить новую версию': 'Tap to load the new version',
     'Пуск / пауза': 'Play / pause', 'Свернуть / развернуть': 'Collapse / expand', 'Скорость анимации': 'Animation speed', 'Язык страницы': 'Page language',
     // ---- карточка судна, лента времени ----
     'судовое': 'ship time', 'Судовое': 'Ship time', 'КК': 'Co', 'пройдено': 'run', 'Пройдено': 'Run', 'осталось': 'to go', 'в пути': 'under way', 'прибытие': 'arrival',
@@ -136,7 +137,7 @@
       "Values are the model median at the ship's point on each route. «Over limits» — how many hours wind or waves are at or above the ship's limits.",
     'нет прогноза / вне рейса': 'no forecast / outside the voyage', 'Вариант': 'Variant', 'Основной': 'Main',
     // карта и единицы
-    'Карта': 'Map', 'ч/с': 'h/s', 'уз': 'kn', 'Бф': 'Bf', 'гПа': 'hPa', 'мм/ч': 'mm/h', 'км': 'km', 'м': 'm', 'из': 'from',
+    'резерв:': 'backup:', 'Карта': 'Map', 'ч/с': 'h/s', 'уз': 'kn', 'Бф': 'Bf', 'гПа': 'hPa', 'мм/ч': 'mm/h', 'км': 'km', 'м': 'm', 'из': 'from',
   };
   const CY = 'А-Яа-яЁё';
   const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

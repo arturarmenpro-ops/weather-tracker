@@ -29,7 +29,7 @@
   }
   const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
   let mapBad = 0;
-  L.tileLayer(ESRI + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, attribution: 'Карта © Esri, © OpenStreetMap · <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a> (CC BY 4.0: ECMWF, NOAA, DWD, Météo-France, Copernicus)' }).on('tileerror', () => { if (++mapBad > 8) WT.src('map', 'down', { note: 'подложка не грузится, погода и маршрут видны' }); }).on('tileload', () => { if (mapBad) { mapBad = 0; WT.src('map', 'ok'); } }).addTo(map);
+  L.tileLayer(ESRI + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, attribution: 'Карта © Esri, © OpenStreetMap · <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a> (CC BY 4.0: ECMWF, NOAA, DWD, Météo-France, Copernicus) · резерв: <a href="https://api.met.no/" target="_blank" rel="noopener">MET Norway</a> (CC BY 4.0), NOAA' }).on('tileerror', () => { if (++mapBad > 8) WT.src('map', 'down', { note: 'подложка не грузится, погода и маршрут видны' }); }).on('tileload', () => { if (mapBad) { mapBad = 0; WT.src('map', 'ok'); } }).addTo(map);
   L.tileLayer(ESRI + 'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, pane: 'labels' }).addTo(map);
   const seamarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom: 18, pane: 'seamarks', attribution: '© OpenSeaMap' });
   const planLayer = L.layerGroup().addTo(map), segLayer = L.layerGroup().addTo(map);
@@ -859,6 +859,37 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   });
 
+  // ======================= НОВАЯ ВЕРСИЯ НА ССЫЛКЕ =======================
+  // Браузер (особенно Safari на телефоне) может до 10 минут показывать старую страницу из своей памяти.
+  // Поэтому сверяемся со свежей страницей на сервере: при открытии — сразу обновляемся сами (один раз),
+  // потом раз в 5 минут и при возврате на вкладку — кнопка «Обновить» вместо номера версии.
+  const myBuild = ((document.querySelector('script[src*="app.js?v="]') || {}).src || '').split('v=')[1] || ''; // метка сборки; локально её нет
+  async function newerBuild() {
+    if (!myBuild) return '';
+    try {
+      const html = await (await fetch(location.pathname + '?nocache=' + Date.now(), { cache: 'no-store' })).text();
+      const m = /app\.js\?v=([a-z0-9]+)/.exec(html);
+      return m && m[1] !== myBuild ? m[1] : '';
+    } catch (e) { return ''; }
+  }
+  function freshReload() {
+    const q = new URLSearchParams(location.search); q.set('u', Date.now().toString(36)); // новый адрес — браузер не возьмёт старую страницу из памяти
+    location.replace(location.pathname + '?' + q + location.hash);
+  }
+  (async () => {
+    const q = new URLSearchParams(location.search);
+    if (q.has('u')) { q.delete('u'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
+    const nb = await newerBuild();
+    let tried = ''; try { tried = sessionStorage.getItem('wt.upd') || ''; } catch (e) { /* приватный режим */ }
+    if (nb && nb !== tried) { try { sessionStorage.setItem('wt.upd', nb); } catch (e) { /* приватный режим */ } freshReload(); return; }
+    const check = async () => {
+      if (document.hidden || $('verBadge').classList.contains('upd')) return;
+      if (await newerBuild()) { const b = $('verBadge'); b.classList.add('upd'); b.hidden = false; b.innerHTML = '<b>⟳ Обновить</b><span>есть новая версия</span>'; b.title = 'Нажмите, чтобы загрузить новую версию'; }
+    };
+    setInterval(check, 5 * 60e3);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+  })();
+
   // ======================= ВЕРСИЯ ПРОГРАММЫ =======================
   (async () => {
     let v;
@@ -871,7 +902,11 @@
     // только последнее изменение — вся история не нужна (просил Артур)
     $('verPop').innerHTML = '<h4>Weather Tracker v' + esc(v.version) + '</h4>' +
       '<div class="it">' + esc(when(v.date)) + '<div class="notr">' + esc(v.what || '') + '</div><div class="who">внёс: ' + esc(v.by || '—') + '</div></div>';
-    b.addEventListener('click', (e) => { e.stopPropagation(); $('verPop').hidden = !$('verPop').hidden; });
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (b.classList.contains('upd')) return freshReload();
+      $('verPop').hidden = !$('verPop').hidden;
+    });
     document.addEventListener('click', (e) => { if (!$('verPop').contains(e.target)) $('verPop').hidden = true; });
   })();
 
