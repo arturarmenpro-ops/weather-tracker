@@ -73,6 +73,7 @@
   async function openRouteByName(name) {
     if (!name) return;
     if (name === '__voyage__') return useVoyage(st.voyage);
+    st.variantsData = []; // у отдельного файла маршрута вариантов нет
     try {
       const r = await fetch('routes/' + encodeURIComponent(name));
       if (!r.ok) throw new Error('файл не найден');
@@ -97,6 +98,7 @@
       } catch (e) { /* не страшно */ }
     }
     route.file = name;
+    st.variantsData = [];
     useRoute(name, text, route);
   }
 
@@ -108,6 +110,8 @@
       wps: v.route.wps.map((w, i) => ({ name: w.name || 'WP' + (i + 1), lat: +w.lat, lon: +w.lon, geom: w.geom === 'GC' ? 'GC' : 'RL', speed: num(w.speed) })),
       updated: v.updated || '', source: v.source || '', note: v.note || '',
     };
+    st.voyageRaw = v;
+    st.variantsData = WT.parseVariants(v.variants);
     useRoute('__voyage__', null, route, {
       updated: v.updated || '', dep: Date.parse(v.dep), speed: num(v.speed), startIdx: Math.max(0, parseInt(v.startIdx, 10) || 0), speeds: Object.fromEntries(Object.entries(v.speeds || {}).filter(([, x]) => num(x)).map(([k, x]) => [k, num(x)])),
       pos: v.pos || '', lim: v.limits, tz: v.tz,
@@ -246,6 +250,20 @@
       const noData = st.sums.filter((s) => s.windSpd == null).length;
       if (WT.staleAge) toast('Нет связи с Open-Meteo: показан сохранённый прогноз ' + Math.round(WT.staleAge / 3600 * 10) / 10 + ' ч назад', true, 12000);
       else toast(noData ? 'Готово. Нет прогноза для ' + noData + ' из ' + st.sums.length + ' точек (дальше горизонта прогноза).' : 'Погода по маршруту готова', false, noData ? 7000 : 2500);
+      if ((st.variantsData || []).length) {
+        try {
+          await WT.buildVariants(st.variantsData, { dep: st.voy.dep, speed: st.speed, stepH: st.stepH, lim: st.lim },
+            { status: (m) => alive() && toast(m, false, 0), alive });
+          if (!alive()) return;
+          WT.drawVariants(map, planRef());
+          $('btnCompare').hidden = false;
+          setTime(st.t);
+          toast('Варианты маршрута готовы: ' + WT.variantsList().length, false, 2500);
+        } catch (e) {
+          if (WT.isCancelled(e) || !alive()) return;
+          toast('Варианты маршрута не загрузились: ' + e.message, true);
+        }
+      }
       await loadGrid(id);
     } catch (e) {
       if (WT.isCancelled(e) || !alive()) return;
@@ -257,7 +275,8 @@
 
   let gridSeq = 0;
   async function loadGrid(id) {
-    const lats = st.samples.map((s) => s.lat), lons = st.sampleLon;
+    const lats = st.samples.map((s) => s.lat), lons = st.sampleLon.slice();
+    for (const v of WT.variantsList()) for (const s of v.samples) { lats.push(s.lat); lons.push(near(s.lon, planRef())); }
     const g = WT.gridFor({ s: Math.min(...lats), n: Math.max(...lats), w: Math.min(...lons), e: Math.max(...lons) });
     const gid = ++gridSeq, model = st.mapModel; // при быстрой смене модели побеждает последний запрос
     const alive = () => id === buildId && gid === gridSeq;
@@ -280,6 +299,7 @@
     if (overlay) { map.removeLayer(overlay); overlay = null; }
     if (vel) { map.removeLayer(vel); vel = null; }
     isoLayer.clearLayers(); lastIso = '';
+    WT.clearVariants(map); $('btnCompare').hidden = true;
     st.grid = null; st.sums = []; st.sev = [];
     $('card').hidden = true; $('btnTable').disabled = true; $('btnCharts').disabled = true;
     $('chWind').innerHTML = ''; $('chWave').innerHTML = '';
@@ -397,6 +417,7 @@
         '<div class="s">' + WT.currentEffect(s.curDir, s.curSpd, p.course) + '</div></div>';
     }
     if (s.pres != null) h += '<div class="row"><div class="k">Давление</div><div class="v">' + f0(s.pres) + ' гПа</div></div>';
+    h += WT.variantsCardHtml(st.t);
     $('cardBody').innerHTML = h;
   }
   function chips(models, vals, fmt) {
@@ -607,6 +628,7 @@
     $('slider').value = st.t;
     $('tLabel').innerHTML = '<b>' + WT.fmtTime(st.t) + ' UTC</b><span class="muted">судовое ' + WT.fmtTime(st.t, st.tz) + ' · ' + (st.t >= st.voy.eta ? 'прибытие' : 'в пути ' + WT.fmtDur((st.t - st.voy.dep) / H)) + '</span>';
     const p = placeShip();
+    if (st.route && st.voy) WT.placeVariantShips(map, st.t, planRef());
     renderCard(p);
     renderMapWx(false);
     moveCursors();
@@ -767,6 +789,49 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   });
 
+  // ======================= ВЕРСИЯ ПРОГРАММЫ =======================
+  (async () => {
+    let v;
+    try { const r = await fetch('version.json', { cache: 'no-store' }); if (!r.ok) return; v = await r.json(); } catch (e) { return; }
+    if (!v || !v.version) return;
+    const when = (d) => { const t = Date.parse(d); return isNaN(t) ? '' : WT.fmtTime(t) + ' UTC'; };
+    const b = $('verBadge');
+    b.innerHTML = '<b>v' + esc(v.version) + '</b><span>' + esc(v.by || '') + (v.date ? ' · ' + esc(when(v.date).slice(0, 5)) : '') + '</span>';
+    b.hidden = false;
+    $('verPop').innerHTML = '<h4>Weather Tracker v' + esc(v.version) + '</h4>' +
+      (v.history || []).map((h) => '<div class="it"><b>v' + esc(h.version) + '</b> · ' + esc(when(h.date)) +
+        '<div>' + esc(h.what || '') + '</div><div class="who">внёс: ' + esc(h.by || '—') + '</div></div>').join('');
+    b.addEventListener('click', (e) => { e.stopPropagation(); $('verPop').hidden = !$('verPop').hidden; });
+    document.addEventListener('click', (e) => { if (!$('verPop').contains(e.target)) $('verPop').hidden = true; });
+  })();
+
+  // ======================= СРАВНЕНИЕ МАРШРУТОВ =======================
+  function openCompare() {
+    if (!WT.variantsList().length || !st.sums.length) return;
+    $('cmpModal').hidden = false;
+    WT.renderCompare($('cmpBody'), { name: st.route.name, voy: st.voy, samples: st.samples, sums: st.sums }, st.lim, st.stepH, makeMain);
+  }
+  // вариант k становится основным, бывший основной — вариантом (только на этом экране, рейс в Telegram не меняется)
+  function makeMain(k) {
+    const raw = st.voyageRaw, list = (raw && raw.variants) || [];
+    const chosen = WT.variantsList()[k];
+    if (!raw || !chosen) return;
+    const iso = (ms) => new Date(ms).toISOString().slice(0, 16) + 'Z';
+    const oldMain = { id: 'A', name: 'Был основным: ' + st.route.name, route: { name: st.route.name, wps: st.route.wps },
+      dep: iso(st.voy.dep), speed: st.speed, speeds: st.speeds, startIdx: +$('startWp').value || 0, pos: $('pos').value.trim() };
+    const others = list.filter((x, i) => i !== k);
+    const v2 = Object.assign({}, raw, {
+      updated: (raw.updated || '') + '#' + chosen.id, note: 'Основным выбран «' + chosen.name + '» на этом экране.',
+      route: { name: chosen.name, wps: chosen.route.wps }, dep: iso(chosen.voy.dep), speed: chosen.speed || st.speed,
+      speeds: chosen.speeds, startIdx: chosen.startIdx, pos: chosen.pos, variants: [oldMain].concat(others),
+    });
+    $('cmpModal').hidden = true;
+    useVoyage(v2);
+  }
+  $('btnCompare').addEventListener('click', openCompare);
+  $('cmpClose').addEventListener('click', () => ($('cmpModal').hidden = true));
+  $('cmpModal').addEventListener('click', (e) => { if (e.target.id === 'cmpModal') $('cmpModal').hidden = true; });
+
   // ======================= WINDY ДЛЯ СРАВНЕНИЯ =======================
   const WINDY_OVERLAY = { wind: 'wind', gust: 'gust', rain: 'rain', clouds: 'clouds', pressure: 'pressure', vis: 'visibility', waves: 'waves', swell: 'swell1', windwave: 'wwaves', currents: 'currents', radar: 'radar', satellite: 'satellite' };
   const WINDY_PRODUCT = { ecmwf_ifs025: 'ecmwf', gfs_seamless: 'gfs', icon_seamless: 'icon' };
@@ -830,6 +895,7 @@
     saveRouteSettings();
     if (!st.sums.length) return;
     st.sev = st.sums.map((x) => WT.severity(x, st.lim));
+    WT.resevVariants(st.lim); if (WT.variantsList().length) WT.drawVariants(map, planRef());
     drawSegments(); drawCharts(); setTime(st.t);
   });
   $('tz').addEventListener('change', (e) => { st.tz = +e.target.value || 0; LS.set('tz', st.tz); saveRouteSettings(); if (st.voy) { setupTimeline(); setTime(st.t); if (st.sums.length) drawCharts(); } });

@@ -8,7 +8,7 @@
 <meta name="robots" content="noindex, nofollow">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.css">
-<link rel="stylesheet" href="style.css?v=20261018233812">
+<link rel="stylesheet" href="style.css?v=e4b9a0f02c">
 </head>
 <body>
 <div id="stage">
@@ -28,9 +28,11 @@
 <!-- верхняя панель -->
 <div id="topbar">
   <div class="brand"><span class="logo">◈</span> Weather Tracker</div>
+  <button id="verBadge" class="ver" hidden title="Версия и последние изменения"></button>
   <button id="btnPanel" class="btn">☰ Маршрут</button>
   <button id="btnTable" class="btn" disabled>Таблица</button>
   <button id="btnCharts" class="btn" disabled>Графики</button>
+  <button id="btnCompare" class="btn" hidden>Сравнить маршруты</button>
   <button id="btnWindy" class="btn">Сравнить с Windy</button>
 </div>
 
@@ -138,6 +140,15 @@
 </footer>
 
 <div id="toast" hidden></div>
+<div id="verPop" hidden></div>
+
+<!-- сравнение маршрутов -->
+<div id="cmpModal" class="modal" hidden>
+  <div class="m-box">
+    <div class="m-head"><b>Сравнение маршрутов</b><span class="sp"></span><button id="cmpClose" class="btn sm">✕</button></div>
+    <div class="m-body" id="cmpBody"></div>
+  </div>
+</div>
 
 <!-- таблица -->
 <div id="modal" hidden>
@@ -150,11 +161,12 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.js"></script>
-<script src="scales.js?v=20261018233812"></script>
-<script src="route.js?v=20261018233812"></script>
-<script src="weather.js?v=20261018233812"></script>
-<script src="contour.js?v=20261018233812"></script>
-<script src="live.js?v=20261018233812"></script>
-<script src="app.js?v=20261018233812"></script>
+<script src="scales.js?v=e4b9a0f02c"></script>
+<script src="route.js?v=e4b9a0f02c"></script>
+<script src="weather.js?v=e4b9a0f02c"></script>
+<script src="contour.js?v=e4b9a0f02c"></script>
+<script src="live.js?v=e4b9a0f02c"></script>
+<script src="variants.js?v=e4b9a0f02c"></script>
+<script src="app.js?v=e4b9a0f02c"></script>
 </body>
 </html>
