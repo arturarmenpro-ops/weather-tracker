@@ -828,9 +828,9 @@
     const b = $('verBadge');
     b.innerHTML = '<b>v' + esc(v.version) + '</b><span>' + esc(v.by || '') + (v.date ? ' · ' + esc(when(v.date).slice(0, 5)) : '') + '</span>';
     b.hidden = false;
+    // только последнее изменение — вся история не нужна (просил Артур)
     $('verPop').innerHTML = '<h4>Weather Tracker v' + esc(v.version) + '</h4>' +
-      (v.history || []).map((h) => '<div class="it"><b>v' + esc(h.version) + '</b> · ' + esc(when(h.date)) +
-        '<div>' + esc(h.what || '') + '</div><div class="who">внёс: ' + esc(h.by || '—') + '</div></div>').join('');
+      '<div class="it">' + esc(when(v.date)) + '<div>' + esc(v.what || '') + '</div><div class="who">внёс: ' + esc(v.by || '—') + '</div></div>';
     b.addEventListener('click', (e) => { e.stopPropagation(); $('verPop').hidden = !$('verPop').hidden; });
     document.addEventListener('click', (e) => { if (!$('verPop').contains(e.target)) $('verPop').hidden = true; });
   })();
